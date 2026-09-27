@@ -8,6 +8,8 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 const bool isDeveloperBuild = !bool.fromEnvironment('dart.vm.product');
 
@@ -1543,10 +1545,18 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   String? _currentlySpeakingText;
   bool _isGeneratingTts = false;
 
+  int _webResponseCount = 0;
+  bool _isWebUnlocked = false;
+  static const int kMaxWebResponses = 5;
+  static const String kWebUnlockPassword = "MABLIN_TAWIR";
+
   @override
   void initState() {
     super.initState();
     currentConfig = Map<String, String>.from(widget.config);
+    if (kIsWeb) {
+      _loadWebUsage();
+    }
     _audioPlayer.onPlayerComplete.listen((_) {
       if (mounted) {
         setState(() {
@@ -1554,6 +1564,174 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         });
       }
     });
+  }
+
+  Future<void> _loadWebUsage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted) {
+        setState(() {
+          _webResponseCount = prefs.getInt('tawir_web_response_count') ?? 0;
+          _isWebUnlocked = prefs.getBool('tawir_web_unlocked') ?? false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error loading web usage: $e");
+    }
+  }
+
+  void _showWebUnlockDialog() {
+    final passwordCtrl = TextEditingController();
+    String? localError;
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF0A1118),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: BorderSide(color: const Color(0xFF00F2FE).withValues(alpha: 0.3)),
+              ),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF00F2FE).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.lock_outline_rounded, color: Color(0xFF00F2FE), size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      "Web Preview Limit",
+                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _isWebUnlocked
+                        ? "Unlimited web access is unlocked on this device."
+                        : "This web preview (kiruu.xyz/tawir) is limited to $kMaxWebResponses responses per device. Enter the passcode to unlock unlimited access.",
+                    style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+                  ),
+                  if (!_isWebUnlocked) ...[
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: passwordCtrl,
+                      obscureText: true,
+                      autofocus: true,
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      decoration: InputDecoration(
+                        hintText: "Enter password...",
+                        hintStyle: const TextStyle(color: Colors.white30),
+                        filled: true,
+                        fillColor: Colors.white.withValues(alpha: 0.05),
+                        errorText: localError,
+                        errorStyle: const TextStyle(color: Color(0xFFFF5252), fontSize: 11),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFF00F2FE)),
+                        ),
+                      ),
+                      onSubmitted: (val) async {
+                        await _processPasswordUnlock(val, dialogCtx, (err) {
+                          setDialogState(() {
+                            localError = err;
+                          });
+                        });
+                      },
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: Text(
+                    _isWebUnlocked ? "Close" : "Cancel",
+                    style: const TextStyle(color: Colors.white54, fontSize: 13),
+                  ),
+                ),
+                if (!_isWebUnlocked)
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00F2FE),
+                      foregroundColor: const Color(0xFF020812),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () async {
+                      await _processPasswordUnlock(passwordCtrl.text, dialogCtx, (err) {
+                        setDialogState(() {
+                          localError = err;
+                        });
+                      });
+                    },
+                    child: const Text("Unlock", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _processPasswordUnlock(
+    String input,
+    BuildContext dialogCtx,
+    void Function(String?) setError,
+  ) async {
+    if (input.trim() == kWebUnlockPassword) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('tawir_web_unlocked', true);
+      } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _isWebUnlocked = true;
+        });
+      }
+      Navigator.pop(dialogCtx);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFF0F172A),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: Color(0xFF00F2FE)),
+            ),
+            content: const Text(
+              "Access Granted: Unlimited web responses unlocked on this device!",
+              style: TextStyle(color: Color(0xFF00F2FE), fontWeight: FontWeight.bold, fontSize: 12),
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } else {
+      setError("Incorrect password. Please try again.");
+    }
   }
 
   @override
@@ -1568,6 +1746,45 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     if (text.trim().isEmpty || isTyping) return;
 
     final userText = text.trim();
+
+    // Web-only: Check if user directly entered the unlock password in chat
+    if (kIsWeb && !_isWebUnlocked && userText == kWebUnlockPassword) {
+      inputCtrl.clear();
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('tawir_web_unlocked', true);
+      } catch (_) {}
+      setState(() {
+        _isWebUnlocked = true;
+        if (currentSessionId == null) {
+          currentSessionId = DateTime.now().millisecondsSinceEpoch.toString();
+          chatSessions.insert(0, {
+            "id": currentSessionId,
+            "title": "Unlimited Access Unlocked",
+            "date": "Just now",
+            "isArchived": false,
+          });
+          _sessionStorage[currentSessionId!] = [];
+        }
+        messages.add({
+          "role": "user",
+          "text": userText,
+        });
+        messages.add({
+          "role": "assistant",
+          "text": "Masantos ya inka-unlock! Password accepted. Unlimited web responses are now unlocked for this device.",
+        });
+      });
+      _sessionStorage[currentSessionId!] = List.from(messages);
+      _scrollToBottom();
+      return;
+    }
+
+    // Web-only: Check if 5-response limit is reached
+    if (kIsWeb && !_isWebUnlocked && _webResponseCount >= kMaxWebResponses) {
+      _showWebUnlockDialog();
+      return;
+    }
 
     if (currentSessionId == null) {
       currentSessionId = DateTime.now().millisecondsSinceEpoch.toString();
@@ -1668,6 +1885,14 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             responseText =
                 data["choices"]?[0]?["message"]?["content"]?.toString().trim() ??
                     "No response content received.";
+
+            if (kIsWeb && !_isWebUnlocked) {
+              _webResponseCount++;
+              try {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setInt('tawir_web_response_count', _webResponseCount);
+              } catch (_) {}
+            }
           } else {
             responseText =
             "Error (${response.statusCode}): ${response.body}";
@@ -2291,6 +2516,61 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                         ],
                       ),
                       const Spacer(),
+                      if (kIsWeb) ...[
+                        InkWell(
+                          onTap: _showWebUnlockDialog,
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: _isWebUnlocked
+                                  ? const Color(0xFF00F2FE).withValues(alpha: 0.12)
+                                  : (_webResponseCount >= kMaxWebResponses
+                                      ? const Color(0xFFFF5252).withValues(alpha: 0.15)
+                                      : Colors.white.withValues(alpha: 0.05)),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _isWebUnlocked
+                                    ? const Color(0xFF00F2FE).withValues(alpha: 0.4)
+                                    : (_webResponseCount >= kMaxWebResponses
+                                        ? const Color(0xFFFF5252).withValues(alpha: 0.5)
+                                        : Colors.white.withValues(alpha: 0.1)),
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _isWebUnlocked ? Icons.verified_rounded : Icons.lock_outline_rounded,
+                                  size: 13,
+                                  color: _isWebUnlocked
+                                      ? const Color(0xFF00F2FE)
+                                      : (_webResponseCount >= kMaxWebResponses
+                                          ? const Color(0xFFFF5252)
+                                          : Colors.white70),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _isWebUnlocked
+                                      ? "UNLIMITED"
+                                      : "${(kMaxWebResponses - _webResponseCount).clamp(0, kMaxWebResponses)}/$kMaxWebResponses LEFT",
+                                  style: TextStyle(
+                                    color: _isWebUnlocked
+                                        ? const Color(0xFF00F2FE)
+                                        : (_webResponseCount >= kMaxWebResponses
+                                            ? const Color(0xFFFF5252)
+                                            : Colors.white70),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
                       Container(
                         decoration: BoxDecoration(
                           color: _autoTtsEnabled
