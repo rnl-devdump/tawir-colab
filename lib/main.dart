@@ -113,6 +113,51 @@ class TAWIRApp extends StatelessWidget {
           surface: Color(0xFF0A1118),
         ),
       ),
+      builder: (context, child) {
+        final screenWidth = MediaQuery.of(context).size.width;
+        final isDesktopOrTablet = screenWidth > 480;
+
+        if (!isDesktopOrTablet) {
+          return child ?? const SizedBox();
+        }
+
+        // Strict phone width-height UI for desktop / web browser viewports
+        return Scaffold(
+          backgroundColor: const Color(0xFF020508),
+          body: Center(
+            child: Container(
+              constraints: const BoxConstraints(
+                maxWidth: 430, // Standard modern smartphone width
+                maxHeight: 932, // Standard modern smartphone height
+              ),
+              margin: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(36),
+                border: Border.all(
+                  color: const Color(0xFF00F2FE).withValues(alpha: 0.25),
+                  width: 2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF00F2FE).withValues(alpha: 0.12),
+                    blurRadius: 40,
+                    spreadRadius: 2,
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.8),
+                    blurRadius: 30,
+                    offset: const Offset(0, 15),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(34),
+                child: child ?? const SizedBox(),
+              ),
+            ),
+          ),
+        );
+      },
       home: const IntroLogoScreen(),
     );
   }
